@@ -152,12 +152,22 @@ OUTRO_SLIDES = [
 
 
 def load_png(path, size):
+    if not os.path.isfile(path):
+        # Create a colored placeholder if file is missing
+        surf = pygame.Surface(size, pygame.SRCALPHA)
+        pygame.draw.rect(surf, (200, 200, 200), (0, 0, size[0], size[1]), 2)
+        return surf
     img = pygame.image.load(path).convert_alpha()
     return pygame.transform.scale(img, size)
 
 
 def load_creature_jpg(path, size):
     """Remove flat backdrop via corner chroma key (looks transparent in-game)."""
+    if not os.path.isfile(path):
+        # Create a colored placeholder if file is missing
+        surf = pygame.Surface(size)
+        surf.fill((100, 100, 100))
+        return surf
     img = pygame.image.load(path).convert()
     key = img.get_at((0, 0))
     img.set_colorkey(key, pygame.RLEACCEL)
@@ -168,7 +178,10 @@ def load_creature_jpg(path, size):
 # LOAD IMAGES
 # =============================
 _bg_path = os.path.join(BASE_DIR, "assets", "bg.png")
-if os.path.isfile(_bg_path):
+if not os.path.isfile(_bg_path):
+    _bg_path = os.path.join(BASE_DIR, "Images", "bg.png")
+
+if _bg_path and os.path.isfile(_bg_path):
     bg = pygame.image.load(_bg_path).convert()
     bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
 else:
@@ -178,10 +191,13 @@ PLAYER_W, PLAYER_H = 60, 70
 ZOMBIE_W, ZOMBIE_H = 55, 65
 BOSS_W, BOSS_H = 160, 185
 
-player_img_right = load_png(os.path.join(BASE_DIR, "Images/survivor.png"), (PLAYER_W, PLAYER_H))
+_p_path = os.path.join(BASE_DIR, "Images", "survivor.png")
+if not os.path.isfile(_p_path): _p_path = os.path.join(BASE_DIR, "survivor.png")
+player_img_right = load_png(_p_path, (PLAYER_W, PLAYER_H))
 player_img_left = pygame.transform.flip(player_img_right, True, False)
 
-_z_path = os.path.join(BASE_DIR, "Images/zombie.jpg")
+_z_path = os.path.join(BASE_DIR, "Images", "zombie.jpg")
+if not os.path.isfile(_z_path): _z_path = os.path.join(BASE_DIR, "zombie.jpg")
 zombie_img_right = load_creature_jpg(_z_path, (ZOMBIE_W, ZOMBIE_H))
 zombie_img_left = pygame.transform.flip(zombie_img_right, True, False)
 
@@ -285,15 +301,14 @@ def draw_text(surf, text, color, x, y, use_big=False):
 def find_story_image_path(stem):
     """Resolve Lab -> Lab.png / lab.jpg / etc. in game folder."""
     exts = (".png", ".jpg", ".jpeg", ".webp")
-    names = [stem]
-    low = stem.lower()
-    if low not in names:
-        names.append(low)
-    for name in names:
+    for name in [stem, stem.lower()]:
         for ext in exts:
-            p = os.path.join(BASE_DIR, name + ext)
-            if os.path.isfile(p):
-                return p
+            filename = name + ext
+            # Check root first, then the Images folder
+            for folder in ["", "Images"]:
+                p = os.path.join(BASE_DIR, folder, filename)
+                if os.path.isfile(p):
+                    return p
     return None
 
 
@@ -937,12 +952,16 @@ def play_round():
             z["rect"].x -= int(z["speed"])
             if z["hit_flash"] > 0:
                 z["hit_flash"] -= 1
+        
+        # Clean up zombies that walk off the left side
+        for z in zombies[:]:
+            if z["rect"].right < 0:
+                zombies.remove(z)
+                spawned_this_wave -= 1 # Allow a replacement to spawn
 
         for b in bullets[:]:
             b["rect"].x += b["vx"]
             if b["rect"].right < 0 or b["rect"].left > WIDTH:
-                if b in bullets:
-                    bullets.remove(b)
                 continue
 
             hit = False
@@ -979,7 +998,8 @@ def play_round():
             for z in zombies[:]:
                 if z["rect"].colliderect(player):
                     register_damage()
-                    zombies.remove(z)
+                    if z in zombies: zombies.remove(z)
+                    spawned_this_wave -= 1 # Allow a replacement to spawn
                     reset_player()
                     if health <= 0:
                         return "dead"
