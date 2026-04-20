@@ -1,3 +1,4 @@
+
 import math
 import os
 import random
@@ -177,7 +178,6 @@ def load_creature_jpg(path, size):
 PLAYER_W, PLAYER_H = 60, 70
 ZOMBIE_W, ZOMBIE_H = 55, 65
 BOSS_W, BOSS_H = 160, 185
-
 _p_path = os.path.join(BASE_DIR, "Images", "survivor.png")
 if not os.path.isfile(_p_path): _p_path = os.path.join(BASE_DIR, "survivor.png")
 player_img_right = load_png(_p_path, (PLAYER_W, PLAYER_H))
@@ -704,6 +704,57 @@ def draw_boss_attack_fx(surf, boss_rect, facing_right, phase, max_phase):
     surf.blit(slash, (0, 0))
 
 
+def wrap_text(text, fnt, max_width):
+    words = text.split()
+    lines = []
+    current = ""
+
+    for word in words:
+        test = word if current == "" else current + " " + word
+        if fnt.size(test)[0] <= max_width:
+            current = test
+        else:
+            if current:
+                lines.append(current)
+            current = word
+
+    if current:
+        lines.append(current)
+
+    return lines
+
+
+def build_feedback(stats):
+    feedback = []
+
+    score = stats.get("score", 0)
+    badges = stats.get("badges", [])
+    challenges = stats.get("challenges", [])
+
+    if score >= 900:
+        feedback.append("Excellent performance! You completed the mission with a very strong score.")
+    elif score >= 600:
+        feedback.append("Good job! Your gameplay was solid and consistent throughout the waves.")
+    else:
+        feedback.append("You completed the game, but there is room to improve your score and efficiency.")
+
+    if "Legend" in badges:
+        feedback.append("Great work defeating the Scientist Boss and finishing the full mission.")
+    if "Zombie Hunter" in badges:
+        feedback.append("Your zombie elimination rate was strong. Combat performance was impressive.")
+    if "Survivor" in badges:
+        feedback.append("You survived through the intense middle waves very well.")
+
+    if len(challenges) == 0:
+        feedback.append("Try completing bonus challenges like flawless waves for a better result.")
+    else:
+        feedback.append("Nice challenge completion! You unlocked extra achievements during gameplay.")
+
+    feedback.append("Further improvements could include even faster wave clears, more flawless runs, and higher total score.")
+
+    return feedback
+
+
 def start_menu():
     global MUSIC_VOL, SFX_VOL, GLOBAL_BRIGHTNESS
     selected_idx = 0
@@ -821,6 +872,8 @@ def game_over_menu():
 
 def win_menu(stats):
     """stats dict: score, badges (list of str), challenges (list of str). Returns 'menu' or 'quit'."""
+    feedback_list = build_feedback(stats)
+
     while True:
         clock.tick(60)
         for event in pygame.event.get():
@@ -837,17 +890,43 @@ def win_menu(stats):
         overlay.fill((0, 40, 20, 175))
         screen.blit(overlay, (0, 0))
 
-        draw_text(screen, "YOU WON!", GREEN, WIDTH // 2 - 150, 120, use_big=True)
-        draw_text(screen, f"Final score: {stats.get('score', 0)}", WHITE, WIDTH // 2 - 120, 200)
-        draw_text(screen, "Saved to score.txt if in top 5.", (180, 200, 180), WIDTH // 2 - 160, 235)
-        y = 280
-        for b in stats.get("badges", []):
-            draw_text(screen, f"Badge: {b}", YELLOW, 120, y)
-            y += 30
-        for c in stats.get("challenges", []):
-            draw_text(screen, f"Challenge: {c}", (160, 220, 255), 120, y)
-            y += 28
-        draw_text(screen, "M / ENTER — Main menu      ESC — Quit", WHITE, 220, 520)
+        draw_text(screen, "YOU WON!", GREEN, WIDTH // 2 - 150, 40, use_big=True)
+        draw_text(screen, f"Final score: {stats.get('score', 0)}", WHITE, WIDTH // 2 - 100, 100)
+        draw_text(screen, "Saved to score.txt if in top 5.", (180, 200, 180), WIDTH // 2 - 160, 135)
+
+        badge_y = 175
+        draw_text(screen, "Badges:", YELLOW, 70, badge_y)
+        badge_y += 35
+        if stats.get("badges"):
+            for b in stats.get("badges", []):
+                draw_text(screen, f"- {b}", WHITE, 90, badge_y)
+                badge_y += 28
+        else:
+            draw_text(screen, "- None", WHITE, 90, badge_y)
+
+        draw_text(screen, "Challenges:", (160, 220, 255), 70, 280)
+        cy = 315
+        if stats.get("challenges"):
+            for c in stats.get("challenges", []):
+                wrapped = wrap_text(f"- {c}", small_font, 350)
+                for line in wrapped:
+                    screen.blit(small_font.render(line, True, WHITE), (90, cy))
+                    cy += 24
+                cy += 4
+        else:
+            screen.blit(small_font.render("- No bonus challenges completed", True, WHITE), (90, cy))
+
+        draw_text(screen, "Feedback:", GREEN, 540, 175)
+        fy = 210
+        for fb in feedback_list:
+            wrapped = wrap_text(f"- {fb}", small_font, 360)
+            for line in wrapped:
+                screen.blit(small_font.render(line, True, WHITE), (560, fy))
+                fy += 24
+            fy += 6
+
+        draw_text(screen, "M / ENTER — Main menu      ESC — Quit", WHITE, 220, 550)
+
         apply_brightness(screen)
         pygame.display.update()
 
