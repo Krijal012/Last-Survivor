@@ -174,19 +174,6 @@ def load_creature_jpg(path, size):
     return pygame.transform.scale(img, size)
 
 
-# =============================
-# LOAD IMAGES
-# =============================
-_bg_path = os.path.join(BASE_DIR, "assets", "bg.png")
-if not os.path.isfile(_bg_path):
-    _bg_path = os.path.join(BASE_DIR, "Images", "bg.png")
-
-if _bg_path and os.path.isfile(_bg_path):
-    bg = pygame.image.load(_bg_path).convert()
-    bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
-else:
-    bg = None
-
 PLAYER_W, PLAYER_H = 60, 70
 ZOMBIE_W, ZOMBIE_H = 55, 65
 BOSS_W, BOSS_H = 160, 185
@@ -234,11 +221,10 @@ BOSS_ATTACK_COOLDOWN = 75
 BOSS_ATTACK_DURATION = 32
 BOSS_LUNGE = 20
 
-# =============================
-# AUDIO (WAV files next to main.py)
-# =============================
 MUSIC_VOL = 0.32
 SFX_VOL = 0.55
+GLOBAL_BRIGHTNESS = 1.0
+ALL_SFX = []
 
 
 def _load_sound(filename):
@@ -247,8 +233,12 @@ def _load_sound(filename):
         return None
     s = pygame.mixer.Sound(path)
     s.set_volume(SFX_VOL)
+    ALL_SFX.append(s)
     return s
 
+def update_sfx_volumes():
+    for s in ALL_SFX:
+        s.set_volume(SFX_VOL)
 
 sfx_gunshot = _load_sound("Sounds/gunshot.wav")
 sfx_hit = _load_sound("Sounds/hit.wav")
@@ -257,32 +247,56 @@ sfx_player_hurt = _load_sound("Sounds/PlayerHurt.wav")
 sfx_game_over = _load_sound("Sounds/GameOver.wav")
 sfx_zombie_roar = _load_sound("Sounds/ZombieRoar.wav")
 sfx_boss_death = _load_sound("Sounds/ZombieBossDeath.wav")
+sfx_click = _load_sound("Sounds/MenuClick.wav")
 
-_MUSIC_PATH = os.path.join(BASE_DIR, "Sounds/backgroundMusic.wav")
-_music_started = False
+# Define specific music paths
+MENU_MUSIC_PATH = os.path.join(BASE_DIR, "Sounds/IndustrialDarkAmbient.wav")
+# Fallback for menu music
+if not os.path.isfile(MENU_MUSIC_PATH):
+    MENU_MUSIC_PATH = os.path.join(BASE_DIR, "Sounds/IndustrialDarkAAmbient.wav") # Corrected typo from previous
+if not os.path.isfile(MENU_MUSIC_PATH):
+    MENU_MUSIC_PATH = os.path.join(BASE_DIR, "Sounds/Industrial Dark Ambient.wav")
+
+GAME_MUSIC_PATH = os.path.join(BASE_DIR, "Sounds/backgroundMusic.wav")
+# No fallback for game music, assume it exists or game will be silent.
 
 
 def _play_sfx(sound):
     if sound is not None:
         sound.play()
 
-
-def start_background_music():
-    global _music_started
-    if _music_started or not os.path.isfile(_MUSIC_PATH):
+def _play_music(music_file_path):
+    """Loads and plays the specified music file on a loop."""
+    if not os.path.isfile(music_file_path):
+        print(f"Warning: Music file not found: {music_file_path}")
         return
-    pygame.mixer.music.load(_MUSIC_PATH)
+    pygame.mixer.music.load(music_file_path)
     pygame.mixer.music.set_volume(MUSIC_VOL)
     pygame.mixer.music.play(-1)
-    _music_started = True
+
+
+# =============================
+# LOAD IMAGES
+# =============================
+_bg_path = os.path.join(BASE_DIR, "background.png")
+if not os.path.isfile(_bg_path):
+    _bg_path = os.path.join(BASE_DIR, "Images", "background.png")
+if not os.path.isfile(_bg_path):
+    _bg_path = os.path.join(BASE_DIR, "assets", "bg.png")
+if not os.path.isfile(_bg_path):
+    _bg_path = os.path.join(BASE_DIR, "Images", "bg.png")
+
+if _bg_path and os.path.isfile(_bg_path):
+    bg = pygame.image.load(_bg_path).convert()
+    bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
+else:
+    bg = None
 
 
 def draw_map(surf):
-    if bg is not None:
-        surf.blit(bg, (0, 0))
-    else:
-        surf.fill(SKY)
-        pygame.draw.rect(surf, (85, 130, 170), (0, 420, WIDTH, 130))
+    """Draws the gameplay map (sky, ground, platforms). Does NOT draw background.png."""
+    surf.fill(SKY)
+    pygame.draw.rect(surf, (85, 130, 170), (0, 420, WIDTH, 130))
 
     pygame.draw.rect(surf, GRASS_DARK, ground)
     pygame.draw.rect(surf, GRASS_TOP, (ground.x, ground.y, ground.w, 14))
@@ -505,7 +519,7 @@ def wave_transition_with_movement(wave_num, extra_lines, player, current_score, 
                 return "ok"
 
         # Draw everything
-        draw_map(screen)
+        draw_map(screen) # Gameplay map
 
         # Draw player
         p_img = player_img_right
@@ -603,6 +617,14 @@ def boss_intro_cutscene():
     return "ok"
 
 
+def apply_brightness(surf):
+    if GLOBAL_BRIGHTNESS >= 1.0:
+        return
+    overlay = pygame.Surface((WIDTH, HEIGHT))
+    overlay.fill((0, 0, 0))
+    overlay.set_alpha(int(255 * (1.0 - GLOBAL_BRIGHTNESS)))
+    surf.blit(overlay, (0, 0))
+
 def draw_bar(surf, x, y, w, h, frac, fill_color, back_color=BAR_BACK, border=(90, 94, 102)):
     frac = max(0.0, min(1.0, frac))
     pygame.draw.rect(surf, back_color, (x, y, w, h))
@@ -683,30 +705,87 @@ def draw_boss_attack_fx(surf, boss_rect, facing_right, phase, max_phase):
 
 
 def start_menu():
-    """Returns True to play, False to quit."""
+    global MUSIC_VOL, SFX_VOL, GLOBAL_BRIGHTNESS
+    selected_idx = 0
+    menu_items = ["PLAY", "SETTINGS", "EXIT"]
+    in_settings = False
+    settings_idx = 0
+    settings_items = ["Brightness", "Sound", "Back"]
+
     while True:
         clock.tick(60)
+        screen.fill(UI_BG)
+        if bg: # Draw background.png for the menu
+            screen.blit(bg, (0, 0))
+
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 160)) # More transparent to show background.png better
+        screen.blit(overlay, (0, 0))
+
+        draw_text(screen, "VIRUS: LAST SURVIVOR", WHITE, WIDTH // 2 - 280, 80, use_big=True)
+
+        if not in_settings:
+            for i, item in enumerate(menu_items):
+                color = GREEN if i == selected_idx else WHITE
+                text = f"> {item} <" if i == selected_idx else item
+                draw_text(screen, text, color, WIDTH // 2 - 80, 240 + i * 60)
+            top = load_leaderboard_scores()
+            if top:
+                draw_text(screen, f"Top Score: {top[0]}", YELLOW, WIDTH // 2 - 80, 450)
+        else:
+            for i, item in enumerate(settings_items):
+                color = YELLOW if i == settings_idx else WHITE
+                text = f"> {item} <" if i == settings_idx else item
+                if item == "Brightness":
+                    text += f" : {int(GLOBAL_BRIGHTNESS * 100)}%"
+                elif item == "Sound":
+                    text += f" : {int(MUSIC_VOL * 100)}%"
+                draw_text(screen, text, color, WIDTH // 2 - 130, 240 + i * 60)
+            draw_text(screen, "W/S: Navigate   A/D or Arrows: Adjust", (170, 175, 185), WIDTH // 2 - 180, 450)
+
+        apply_brightness(screen)
+        pygame.display.update()
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_RETURN, pygame.K_SPACE):
-                    return True
+                if event.key == pygame.K_w:
+                    if in_settings: settings_idx = (settings_idx - 1) % len(settings_items)
+                    else: selected_idx = (selected_idx - 1) % len(menu_items)
+                    _play_sfx(sfx_click)
+                elif event.key == pygame.K_s:
+                    if in_settings: settings_idx = (settings_idx + 1) % len(settings_items)
+                    else: selected_idx = (selected_idx + 1) % len(menu_items)
+                    _play_sfx(sfx_click)
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    _play_sfx(sfx_click)
+                    if not in_settings:
+                        if menu_items[selected_idx] == "PLAY": return True
+                        elif menu_items[selected_idx] == "EXIT": return False
+                        elif menu_items[selected_idx] == "SETTINGS": in_settings = True
+                    else:
+                        if settings_items[settings_idx] == "Back": in_settings = False
+                elif in_settings:
+                    if event.key in (pygame.K_d, pygame.K_RIGHT):
+                        if settings_items[settings_idx] == "Brightness":
+                            GLOBAL_BRIGHTNESS = min(1.0, GLOBAL_BRIGHTNESS + 0.05)
+                        elif settings_items[settings_idx] == "Sound":
+                            MUSIC_VOL = min(1.0, MUSIC_VOL + 0.1)
+                            SFX_VOL = min(1.0, SFX_VOL + 0.1)
+                            pygame.mixer.music.set_volume(MUSIC_VOL)
+                            update_sfx_volumes()
+                    elif event.key in (pygame.K_a, pygame.K_LEFT):
+                        if settings_items[settings_idx] == "Brightness":
+                            GLOBAL_BRIGHTNESS = max(0.1, GLOBAL_BRIGHTNESS - 0.05)
+                        elif settings_items[settings_idx] == "Sound":
+                            MUSIC_VOL = max(0.0, MUSIC_VOL - 0.1)
+                            SFX_VOL = max(0.0, SFX_VOL - 0.1)
+                            pygame.mixer.music.set_volume(MUSIC_VOL)
+                            update_sfx_volumes()
                 if event.key == pygame.K_ESCAPE:
-                    return False
-
-        screen.fill(UI_BG)
-        draw_text(screen, "VIRUS: LAST SURVIVOR", WHITE, WIDTH // 2 - 300, 90, use_big=True)
-        draw_text(screen, "Kill 100 infected · 5 waves · defeat the Scientist Boss · save the cure", (200, 210, 230),
-                  120, 175)
-        top = load_leaderboard_scores()
-        if top:
-            draw_text(screen, f"Top score: {top[0]}    (score.txt)", (180, 200, 120), 360, 215)
-        draw_text(screen, "ENTER / SPACE  —  Start (intro plays first)", GREEN, 260, 265)
-        draw_text(screen, "ESC  —  Quit", (200, 200, 200), 400, 305)
-        draw_text(screen, "Move: ← →     Jump: W     Shoot: SPACE (facing = bullet dir)", WHITE, 160, 350)
-        draw_text(screen, "Points: kills + waves + boss · Badges · Challenges · Leaderboard", WHITE, 100, 390)
-        pygame.display.update()
+                    if in_settings: in_settings = False
+                    else: return False
 
 
 def game_over_menu():
@@ -727,12 +806,14 @@ def game_over_menu():
                     if event.key == pygame.K_ESCAPE:
                         return "quit"
 
+            screen.fill(UI_BG)
             overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             overlay.fill((0, 0, 0, 170))
             screen.blit(overlay, (0, 0))
 
             draw_text(screen, "GAME OVER", RED, WIDTH // 2 - 170, 200, use_big=True)
             draw_text(screen, "R — Play again      M — Main menu      ESC — Quit", WHITE, 200, 300)
+            apply_brightness(screen)
             pygame.display.update()
     finally:
         pygame.mixer.music.unpause()
@@ -751,6 +832,7 @@ def win_menu(stats):
                 if event.key == pygame.K_ESCAPE:
                     return "quit"
 
+        screen.fill((10, 25, 15))
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 40, 20, 175))
         screen.blit(overlay, (0, 0))
@@ -766,6 +848,7 @@ def win_menu(stats):
             draw_text(screen, f"Challenge: {c}", (160, 220, 255), 120, y)
             y += 28
         draw_text(screen, "M / ENTER — Main menu      ESC — Quit", WHITE, 220, 520)
+        apply_brightness(screen)
         pygame.display.update()
 
 
@@ -1078,7 +1161,7 @@ def play_round():
         if health <= 0:
             return "dead"
 
-        draw_map(screen)
+        draw_map(screen) # Call to draw_map, now only draws sky/ground/platforms
 
         p_img = player_img_right if facing_right else player_img_left
         screen.blit(p_img, (player.x, player.y))
@@ -1127,15 +1210,17 @@ def play_round():
             tw, _ = font.size(toast[0])
             draw_text(screen, toast[0], YELLOW, WIDTH // 2 - tw // 2, 526)
 
+        apply_brightness(screen)
         pygame.display.update()
 
 
 def main():
-    start_background_music()
+    _play_music(MENU_MUSIC_PATH) # Start menu music on launch
     while True:
         if not start_menu():
             pygame.quit()
             sys.exit()
+        _play_music(GAME_MUSIC_PATH)
 
         intro_result = run_slideshow(INTRO_SLIDES, esc_skip_target="game")
         if intro_result == "quit":
@@ -1154,16 +1239,20 @@ def main():
                 if outro_result == "quit":
                     pygame.quit()
                     sys.exit()
-                if win_menu(win_stats) == "quit":
+                if win_menu(win_stats) == "quit": # win_menu returns 'menu' or 'quit'
                     pygame.quit()
                     sys.exit()
-                break
+                pygame.mixer.music.stop() # Stop game music
+                _play_music(MENU_MUSIC_PATH) # Restart menu music
+                break # Go back to main menu
             if outcome == "dead":
                 choice = game_over_menu()
                 if choice == "quit":
                     pygame.quit()
                     sys.exit()
                 if choice == "menu":
+                    pygame.mixer.music.stop() # Stop game music
+                    _play_music(MENU_MUSIC_PATH) # Restart menu music
                     break
                 # again: stay in inner loop
 
