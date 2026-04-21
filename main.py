@@ -439,12 +439,22 @@ def pick_zombie_type(weights):
 def create_zombie(ztype):
     spec = ZOMBIE_SPECS[ztype]
     w, h = spec["w"], spec["h"]
-    x = random.randint(560, 960)
+    
+    # Randomly choose side: 0 for Left, 1 for Right
+    side = random.randint(0, 1)
+    if side == 0:
+        x = random.randint(-150, -w)  # Spawn off-screen left
+        vx = spec["speed"]            # Move right
+    else:
+        x = random.randint(WIDTH, WIDTH + 150) # Spawn off-screen right
+        vx = -spec["speed"]                     # Move left
+
     return {
         "type": ztype,
         "rect": pygame.Rect(x, ground.top - h, w, h),
         "hp": spec["hp"],
         "speed": spec["speed"],
+        "vx": vx,
         "hit_flash": 0,
     }
 
@@ -644,7 +654,9 @@ def resolve_vertical(player, vel_y, prev_bottom):
 
 def draw_zombie_entity(surf, z):
     r = z["rect"]
-    scaled = pygame.transform.smoothscale(zombie_img_left, (r.w, r.h))
+    # Face right if moving right, left if moving left
+    base_img = zombie_img_right if z["vx"] > 0 else zombie_img_left
+    scaled = pygame.transform.smoothscale(base_img, (r.w, r.h))
     surf.blit(scaled, r.topleft)
     if z["type"] == "tank":
         tint = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
@@ -711,30 +723,41 @@ def wrap_text(text, fnt, max_width):
 def build_feedback(stats):
     feedback = []
 
-    score = stats.get("score", 0)
-    badges = stats.get("badges", [])
-    challenges = stats.get("challenges", [])
+    acc = stats.get("accuracy", 0)
+    taken = stats.get("taken", 0)
+    jumps = stats.get("jumps", 0)
+    kills = stats.get("kills", {})
+    time = stats.get("time", 0)
 
-    if score >= 900:
-        feedback.append("Excellent performance! You completed the mission with a very strong score.")
-    elif score >= 600:
-        feedback.append("Good job! Your gameplay was solid and consistent throughout the waves.")
+    # Combat Precision
+    if acc > 85:
+        feedback.append(f"Marksman: Exceptional trigger discipline with {acc:.1f}% accuracy.")
+    elif acc < 35:
+        feedback.append(f"Suppression Specialist: You prioritized volume over precision ({acc:.1f}% accuracy).")
+
+    # Survival Skills
+    if taken == 0:
+        feedback.append("Ghost: You cleared the entire mission without taking a single hit. Flawless.")
+    elif taken < 4:
+        feedback.append(f"Evasive Survivor: Only {taken} hits taken. You managed space and threats effectively.")
     else:
-        feedback.append("You completed the game, but there is room to improve your score and efficiency.")
+        feedback.append(f"Battered Veteran: You took {taken} hits. You survived by the skin of your teeth.")
 
-    if "Legend" in badges:
-        feedback.append("Great work defeating the Scientist Boss and finishing the full mission.")
-    if "Zombie Hunter" in badges:
-        feedback.append("Your zombie elimination rate was strong. Combat performance was impressive.")
-    if "Survivor" in badges:
-        feedback.append("You survived through the intense middle waves very well.")
+    # Movement Style
+    if jumps > 150:
+        feedback.append(f"Acrobat: With {jumps} jumps, you utilized verticality to stay ahead of the horde.")
+    
+    # Mission Efficiency
+    if time < 180:
+        feedback.append(f"Blitz Operative: Record time mission clear in {time}s. Maximum efficiency.")
 
-    if len(challenges) == 0:
-        feedback.append("Try completing bonus challenges like flawless waves for a better result.")
-    else:
-        feedback.append("Nice challenge completion! You unlocked extra achievements during gameplay.")
+    # Target Focus
+    tanks = kills.get("tank", 0)
+    if tanks > 10:
+        feedback.append(f"Tank Buster: You neutralized {tanks} Tank-class infected. Heavy targets were your focus.")
 
-    feedback.append("Further improvements could include even faster wave clears, more flawless runs, and higher total score.")
+    if not feedback:
+        feedback.append("Solid Performance: You followed standard protocols and completed the mission.")
 
     return feedback
 
@@ -878,7 +901,11 @@ def win_menu(stats):
         draw_text(screen, f"Final score: {stats.get('score', 0)}", WHITE, WIDTH // 2 - 100, 100)
         draw_text(screen, "Saved to score.txt if in top 5.", (180, 200, 180), WIDTH // 2 - 160, 135)
 
-        badge_y = 175
+        # Summary of tracked performance
+        perf_sum = f"Acc: {stats.get('accuracy',0):.1f}% | Damage Taken: {stats.get('taken',0)} | Time: {stats.get('time',0)}s"
+        draw_text(screen, perf_sum, (200, 200, 200), WIDTH // 2 - 250, 165)
+
+        badge_y = 205
         draw_text(screen, "Badges:", YELLOW, 70, badge_y)
         badge_y += 35
         if stats.get("badges"):
@@ -939,6 +966,16 @@ def play_round():
     bullets = []
     zombies = []
 
+    # Live performance tracking
+    stats_tracking = {
+        "fired": 0,
+        "hits": 0,
+        "taken": 0,
+        "jumps": 0,
+        "kills": {"normal": 0, "fast": 0, "tank": 0},
+        "start_ticks": pygame.time.get_ticks()
+    }
+
     wave_index = 0
     spawned_this_wave = 0
     killed_this_wave = 0
@@ -975,6 +1012,7 @@ def play_round():
     def register_damage():
         nonlocal health, damage_this_wave, hurt_overlay
         health -= 1
+        stats_tracking["taken"] += 1
         damage_this_wave = True
         hurt_overlay = 14
         _play_sfx(sfx_player_hurt)
@@ -1046,6 +1084,7 @@ def play_round():
                         bx = player.left - 11
                         vx = -BULLET_SPEED
                     bullets.append({"rect": pygame.Rect(bx, player.centery - 3, 14, 6), "vx": vx})
+                    stats_tracking["fired"] += 1
                     _play_sfx(sfx_gunshot)
 
             if event.type == pygame.KEYUP:
@@ -1081,6 +1120,7 @@ def play_round():
                 vel_y = JUMP_VEL
                 jump_buffer = 0
                 coyote = 0
+                stats_tracking["jumps"] += 1
                 _play_sfx(sfx_jump)
             else:
                 jump_buffer -= 1
@@ -1095,13 +1135,13 @@ def play_round():
                 spawned_this_wave += 1
 
         for z in zombies:
-            z["rect"].x -= int(z["speed"])
+            z["rect"].x += int(z["vx"])
             if z["hit_flash"] > 0:
                 z["hit_flash"] -= 1
         
-        # Clean up zombies that walk off the left side
+        # Clean up zombies that walk off either side of the screen
         for z in zombies[:]:
-            if z["rect"].right < 0:
+            if (z["vx"] < 0 and z["rect"].right < 0) or (z["vx"] > 0 and z["rect"].left > WIDTH):
                 zombies.remove(z)
                 spawned_this_wave -= 1 # Allow a replacement to spawn
 
@@ -1115,14 +1155,17 @@ def play_round():
                 boss_health -= 1
                 boss_hit_flash = 8
                 hit = True
+                stats_tracking["hits"] += 1
             elif not boss_fight:
                 for z in zombies[:]:
                     if b["rect"].colliderect(z["rect"]):
                         z["hp"] -= 1
                         z["hit_flash"] = 7
                         _play_sfx(sfx_hit)
+                        stats_tracking["hits"] += 1
                         if z["hp"] <= 0:
                             score += POINTS_PER_KILL
+                            stats_tracking["kills"][z["type"]] += 1
                             total_zombie_kills += 1
                             killed_this_wave += 1
                             zombies.remove(z)
@@ -1205,12 +1248,22 @@ def play_round():
                     badge_names.append("Survivor")
                 if badges["legend"]:
                     badge_names.append("Legend")
+
+                # Compile final gameplay statistics
+                duration = (pygame.time.get_ticks() - stats_tracking["start_ticks"]) // 1000
+                accuracy = (stats_tracking["hits"] / max(1, stats_tracking["fired"])) * 100
+
                 return (
                     "win",
                     {
                         "score": score,
                         "badges": badge_names,
                         "challenges": list(challenges_done),
+                        "accuracy": accuracy,
+                        "taken": stats_tracking["taken"],
+                        "jumps": stats_tracking["jumps"],
+                        "kills": stats_tracking["kills"],
+                        "time": duration
                     },
                 )
 
@@ -1231,6 +1284,11 @@ def play_round():
 
         for z in zombies:
             draw_zombie_entity(screen, z)
+            # Draw health bar for zombies (primarily for high-HP types like Tanks)
+            max_z_hp = ZOMBIE_SPECS[z["type"]]["hp"]
+            if max_z_hp > 1:
+                bz_w, bz_h = 44, 6
+                draw_bar(screen, z["rect"].centerx - bz_w // 2, z["rect"].y - 12, bz_w, bz_h, z["hp"] / max_z_hp, RED)
 
         for b in bullets:
             pygame.draw.rect(screen, YELLOW, b["rect"])
@@ -1246,10 +1304,16 @@ def play_round():
             else:
                 screen.blit(b_img, (boss.x, boss.y))
 
+            # Boss Health Bar at top center
+            draw_text(screen, "SCIENTIST BOSS", BOSS_BAR, WIDTH // 2 - 80, 60)
+            draw_bar(screen, WIDTH // 2 - 150, 95, 300, 16, boss_health / MAX_BOSS_HP, BOSS_BAR)
+
         draw_text(screen, f"Wave {wave_index + 1}/5   Wave kills: {killed_this_wave}/{WAVE_ZOMBIE_COUNT}", WHITE, 20,
                   12)
         draw_text(screen, f"Mission: {total_zombie_kills}/{MISSION_ZOMBIES}   Score: {score}", WHITE, 20, 40)
         draw_text(screen, "← → move   W jump   SPACE shoot", WHITE, 420, 12)
+
+        draw_player_health_bar(screen, player, health, MAX_HEALTH)
 
         if hurt_overlay > 0:
             red = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
