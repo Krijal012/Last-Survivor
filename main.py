@@ -156,7 +156,7 @@ def load_png(path, size):
     if not os.path.isfile(path):
         # Create a colored placeholder if file is missing
         surf = pygame.Surface(size, pygame.SRCALPHA)
-        pygame.draw.rect(surf, (200, 200, 200), (0, 0, size[0], size[1]), 2)
+        surf.fill((200, 200, 200))
         return surf
     img = pygame.image.load(path).convert_alpha()
     return pygame.transform.scale(img, size)
@@ -195,12 +195,7 @@ boss_img_left = pygame.transform.flip(boss_img_right, True, False)
 # MAP
 # =============================
 ground = pygame.Rect(0, 550, 1000, 50)
-platforms = [
-    pygame.Rect(180, 460, 220, 18),
-    pygame.Rect(420, 380, 200, 18),
-    pygame.Rect(680, 300, 240, 18),
-    pygame.Rect(40, 340, 140, 18),
-]
+platforms = []
 
 # =============================
 # TUNING
@@ -295,15 +290,12 @@ else:
 
 def draw_map(surf):
     """Draws the gameplay map (sky, ground, platforms). Does NOT draw background.png."""
-    surf.fill(SKY)
-    pygame.draw.rect(surf, (85, 130, 170), (0, 420, WIDTH, 130))
+    if bg:
+        surf.blit(bg, (0, 0))
+    else:
+        surf.fill(SKY)
 
     pygame.draw.rect(surf, GRASS_DARK, ground)
-    pygame.draw.rect(surf, GRASS_TOP, (ground.x, ground.y, ground.w, 14))
-
-    for p in platforms:
-        pygame.draw.rect(surf, STONE, p)
-        pygame.draw.rect(surf, STONE_EDGE, (p.x, p.y, p.w, 4))
 
 
 def draw_text(surf, text, color, x, y, use_big=False):
@@ -345,10 +337,6 @@ def draw_story_slide(surf, image, lines, index, total, stem, esc_skip_target):
         surf.fill((28, 32, 42))
         draw_text(surf, "Image not found", YELLOW, 40, 40)
         draw_text(surf, f"Add {stem}.png or {stem}.jpg in the game folder.", (180, 180, 200), 40, 90)
-
-    bar = pygame.Surface((WIDTH, 150), pygame.SRCALPHA)
-    bar.fill((0, 0, 0, 210))
-    surf.blit(bar, (0, HEIGHT - 150))
 
     y = HEIGHT - 138
     for line in lines:
@@ -527,10 +515,6 @@ def wave_transition_with_movement(wave_num, extra_lines, player, current_score, 
 
         # Draw ground and platforms again for context
         pygame.draw.rect(screen, GRASS_DARK, ground)
-        pygame.draw.rect(screen, GRASS_TOP, (ground.x, ground.y, ground.w, 14))
-        for p in platforms:
-            pygame.draw.rect(screen, STONE, p)
-            pygame.draw.rect(screen, STONE_EDGE, (p.x, p.y, p.w, 4))
 
         # Draw overlay with fade effect
         if overlay_alpha > 0:
@@ -1262,21 +1246,10 @@ def play_round():
             else:
                 screen.blit(b_img, (boss.x, boss.y))
 
-            draw_text(screen, "SCIENTIST BOSS", BOSS_BAR, boss.centerx - 80, boss.y - 28)
-            draw_bar(screen, boss.x, boss.y - 18, boss.width, 10, boss_health / MAX_BOSS_HP, BOSS_BAR)
-
         draw_text(screen, f"Wave {wave_index + 1}/5   Wave kills: {killed_this_wave}/{WAVE_ZOMBIE_COUNT}", WHITE, 20,
                   12)
         draw_text(screen, f"Mission: {total_zombie_kills}/{MISSION_ZOMBIES}   Score: {score}", WHITE, 20, 40)
         draw_text(screen, "← → move   W jump   SPACE shoot", WHITE, 420, 12)
-
-        draw_text(screen, "HP", WHITE, 20, 72)
-        draw_bar(screen, 52, 72, 180, 16, health / MAX_HEALTH, BAR_HP_OK if health > 2 else BAR_HP)
-
-        draw_text(screen, "XP (mission)", WHITE, 20, 98)
-        draw_bar(screen, 120, 98, 200, 12, min(1.0, total_zombie_kills / MISSION_ZOMBIES), XP_BAR)
-
-        draw_player_health_bar(screen, player, health, MAX_HEALTH)
 
         if hurt_overlay > 0:
             red = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -1284,8 +1257,6 @@ def play_round():
             screen.blit(red, (0, 0))
 
         if toast[1] > 0 and toast[0]:
-            bx = WIDTH // 2 - min(WIDTH - 40, max(300, font.size(toast[0])[0] + 40)) // 2
-            pygame.draw.rect(screen, TOAST_BG, (bx, 520, WIDTH - 2 * bx, 36))
             tw, _ = font.size(toast[0])
             draw_text(screen, toast[0], YELLOW, WIDTH // 2 - tw // 2, 526)
 
