@@ -1,4 +1,3 @@
-
 import math
 import os
 import random
@@ -124,14 +123,14 @@ OUTRO_SLIDES = [
     {
         "stem": "Aftermath",
         "lines": [
-            "The Scientist’s final mutation crashes to the floor.",
+            "The Scientist's final mutation crashes to the floor.",
             "The mind behind the plague is gone—silenced forever.",
         ],
     },
     {
         "stem": "Cure",
         "lines": [
-            "The cure is synthesized. Stable. Real. Humanity’s second chance.",
+            "The cure is synthesized. Stable. Real. Humanity's second chance.",
             "The virus dies with its maker.",
         ],
     },
@@ -191,6 +190,15 @@ zombie_img_left = pygame.transform.flip(zombie_img_right, True, False)
 boss_img_right = load_creature_jpg(_z_path, (BOSS_W, BOSS_H))
 boss_img_left = pygame.transform.flip(boss_img_right, True, False)
 
+# ===== COIN IMAGE LOADING =====
+COIN_W, COIN_H = 20, 20
+_c_path = os.path.join(BASE_DIR, "Images", "coin.png")
+if not os.path.isfile(_c_path): _c_path = os.path.join(BASE_DIR, "coin.png")
+if not os.path.isfile(_c_path): _c_path = os.path.join(BASE_DIR, "Images", "coin.jpg")
+if not os.path.isfile(_c_path): _c_path = os.path.join(BASE_DIR, "coin.jpg")
+coin_img = load_png(_c_path, (COIN_W, COIN_H))
+# ================================
+
 # =============================
 # MAP
 # =============================
@@ -215,6 +223,11 @@ BOSS_ATTACK_RANGE = 95
 BOSS_ATTACK_COOLDOWN = 75
 BOSS_ATTACK_DURATION = 32
 BOSS_LUNGE = 20
+
+# Coin & Boost System
+BOOST_DURATION = 300
+BULLET_BOOST = 2
+SCORE_MULTIPLIER = 2
 
 MUSIC_VOL = 0.32
 SFX_VOL = 0.55
@@ -241,8 +254,9 @@ sfx_jump = _load_sound("Sounds/jump.wav")
 sfx_player_hurt = _load_sound("Sounds/PlayerHurt.wav")
 sfx_game_over = _load_sound("Sounds/GameOver.wav")
 sfx_zombie_roar = _load_sound("Sounds/ZombieRoar.wav")
-sfx_boss_death = _load_sound("Sounds/ZombieBossDeath.wav")
+sfx_boss_death = _load_sound("Sounds/ZombioBossDeath.wav")
 sfx_click = _load_sound("Sounds/MenuClick.wav")
+sfx_coin_pickup = _load_sound("Sounds/coin_pickup.wav")
 
 # Define specific music paths
 MENU_MUSIC_PATH = os.path.join(BASE_DIR, "Sounds/IndustrialDarkAmbient.wav")
@@ -658,15 +672,43 @@ def draw_zombie_entity(surf, z):
     base_img = zombie_img_right if z["vx"] > 0 else zombie_img_left
     scaled = pygame.transform.smoothscale(base_img, (r.w, r.h))
     surf.blit(scaled, r.topleft)
-    if z["type"] == "tank":
+    
+    # ===== ENHANCED ZOMBIE EFFECTS =====
+    # Different effects for each zombie type
+    if z["type"] == "normal":
+        # Normal zombies: subtle shadow/depth
+        shadow = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
+        shadow.fill((0, 0, 0, 30))
+        surf.blit(shadow, r.topleft)
+        
+    elif z["type"] == "fast":
+        # Fast zombies: blue/electric glow (infected faster)
+        glow = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
+        glow.fill((100, 150, 255, 40))
+        surf.blit(glow, r.topleft)
+        
+    elif z["type"] == "tank":
+        # Tank zombies: heavy green tint + armor overlay
         tint = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
         tint.fill((30, 90, 40, 95))
         surf.blit(tint, r.topleft)
+        # Add armor plating effect
+        pygame.draw.rect(surf, (80, 120, 80), (r.left, r.top + r.h // 3, r.w, r.h // 4), 2)
+        pygame.draw.rect(surf, (80, 120, 80), (r.left, r.top + r.h // 2, r.w, r.h // 4), 2)
+    
+    # Hit flash effect (shows damage taken)
     if z["hit_flash"] > 0:
         flash = pygame.Surface((r.w, r.h), pygame.SRCALPHA)
         a = min(160, z["hit_flash"] * 22)
         flash.fill((255, 255, 255, a))
         surf.blit(flash, r.topleft)
+    
+    # Infected glow (subtle pulsing aura)
+    if z["hit_flash"] == 0:  # Only when not flashing from damage
+        infected_glow = pygame.Surface((r.w + 6, r.h + 6), pygame.SRCALPHA)
+        infected_glow.fill((0, 200, 100, 20))
+        surf.blit(infected_glow, (r.left - 3, r.top - 3))
+    # ====================================
 
 
 def draw_player_health_bar(surf, player, health, max_h):
@@ -944,7 +986,7 @@ def win_menu(stats):
 
 def play_round():
     """
-    Wave-based run. Returns 'quit', 'dead', or ('win', stats_dict).
+    Wave-based run with coin & boost system. Returns 'quit', 'dead', or ('win', stats_dict).
     """
     wave_help = [
         ["Wave 1 — basic infected only.", "Clear 20 to advance. Challenge: eliminate all 20."],
@@ -965,6 +1007,14 @@ def play_round():
     total_zombie_kills = 0
     bullets = []
     zombies = []
+
+    # ===== COIN & BOOST SYSTEM =====
+    coins = []
+    coin_spawn_timer = 0
+    coin_collected = 0
+    boost_active = False
+    boost_timer = 0
+    # ================================
 
     # Live performance tracking
     stats_tracking = {
@@ -1055,6 +1105,7 @@ def play_round():
             # This is wave 4 completing, next is boss
             zombies.clear()
             bullets.clear()
+            coins.clear()  # Clear coins before boss fight
             if boss_intro_cutscene() == "quit":
                 return "quit"
             boss_fight = True
@@ -1077,15 +1128,24 @@ def play_round():
                     jump_buffer = JUMP_BUFFER_FRAMES
 
                 if event.key == pygame.K_SPACE:
-                    if facing_right:
-                        bx = player.right - 4
-                        vx = BULLET_SPEED
-                    else:
-                        bx = player.left - 11
-                        vx = -BULLET_SPEED
-                    bullets.append({"rect": pygame.Rect(bx, player.centery - 3, 14, 6), "vx": vx})
-                    stats_tracking["fired"] += 1
+                    # ===== COIN & BOOST: Multi-bullet shooting =====
+                    total_bullets = 1
+                    if boost_active:
+                        total_bullets += BULLET_BOOST
+                    
+                    for i in range(total_bullets):
+                        offset = i * 5
+                        if facing_right:
+                            bx = player.right - 4
+                            vx = BULLET_SPEED
+                        else:
+                            bx = player.left - 11
+                            vx = -BULLET_SPEED
+                        bullets.append({"rect": pygame.Rect(bx, player.centery - 3 + offset, 14, 6), "vx": vx})
+                    
+                    stats_tracking["fired"] += total_bullets
                     _play_sfx(sfx_gunshot)
+                    # ==============================================
 
             if event.type == pygame.KEYUP:
                 if event.key == pygame.K_w and vel_y < JUMP_CUT:
@@ -1134,6 +1194,15 @@ def play_round():
                 zombies.append(create_zombie(zt))
                 spawned_this_wave += 1
 
+        # ===== COIN SPAWN =====
+        coin_spawn_timer += 1
+        if coin_spawn_timer > 180:
+            coin_spawn_timer = 0
+            cx = random.randint(50, WIDTH - 50)
+            cy = ground.top - 20
+            coins.append(pygame.Rect(cx, cy, 20, 20))
+        # ======================
+
         for z in zombies:
             z["rect"].x += int(z["vx"])
             if z["hit_flash"] > 0:
@@ -1144,6 +1213,18 @@ def play_round():
             if (z["vx"] < 0 and z["rect"].right < 0) or (z["vx"] > 0 and z["rect"].left > WIDTH):
                 zombies.remove(z)
                 spawned_this_wave -= 1 # Allow a replacement to spawn
+
+        # ===== COIN COLLECTION =====
+        for coin in coins[:]:
+            if player.colliderect(coin):
+                coins.remove(coin)
+                coin_collected += 1
+                # Activate boost
+                boost_active = True
+                boost_timer = BOOST_DURATION
+                _play_sfx(sfx_coin_pickup)
+                set_toast("BOOST ACTIVATED! +2 bullets, 2x points!", 100)
+        # ============================
 
         for b in bullets[:]:
             b["rect"].x += b["vx"]
@@ -1164,7 +1245,13 @@ def play_round():
                         _play_sfx(sfx_hit)
                         stats_tracking["hits"] += 1
                         if z["hp"] <= 0:
-                            score += POINTS_PER_KILL
+                            # ===== COIN & BOOST: Score multiplier =====
+                            if boost_active:
+                                score += POINTS_PER_KILL * SCORE_MULTIPLIER
+                            else:
+                                score += POINTS_PER_KILL
+                            # ==========================================
+                            
                             stats_tracking["kills"][z["type"]] += 1
                             total_zombie_kills += 1
                             killed_this_wave += 1
@@ -1267,6 +1354,13 @@ def play_round():
                     },
                 )
 
+        # ===== BOOST TIMER UPDATE =====
+        if boost_active:
+            boost_timer -= 1
+            if boost_timer <= 0:
+                boost_active = False
+        # ==============================
+
         if boss_hit_flash > 0:
             boss_hit_flash -= 1
         if hurt_overlay > 0:
@@ -1290,8 +1384,36 @@ def play_round():
                 bz_w, bz_h = 44, 6
                 draw_bar(screen, z["rect"].centerx - bz_w // 2, z["rect"].y - 12, bz_w, bz_h, z["hp"] / max_z_hp, RED)
 
+        # ===== DRAW COINS =====
+        for coin in coins:
+            screen.blit(coin_img, coin.topleft)
+            # Optional: Add a subtle glow/outline around the coin
+            pygame.draw.circle(screen, (255, 215, 0), coin.center, 12, 1)
+        # =======================
+
+        # ===== DRAW REALISTIC BULLETS =====
         for b in bullets:
-            pygame.draw.rect(screen, YELLOW, b["rect"])
+            rect = b["rect"]
+            # Bullet casing (brass/metallic color)
+            pygame.draw.rect(screen, (184, 134, 11), rect)  # Dark goldenrod casing
+            # Bullet tip (pointed/sharp)
+            tip_height = rect.height
+            if b["vx"] > 0:  # Moving right - tip on right side
+                tip_points = [
+                    (rect.right, rect.centery),
+                    (rect.right + 4, rect.centery - 3),
+                    (rect.right + 4, rect.centery + 3)
+                ]
+            else:  # Moving left - tip on left side
+                tip_points = [
+                    (rect.left, rect.centery),
+                    (rect.left - 4, rect.centery - 3),
+                    (rect.left - 4, rect.centery + 3)
+                ]
+            pygame.draw.polygon(screen, (220, 20, 60), tip_points)  # Crimson red tip
+            # Metallic highlight on casing
+            pygame.draw.line(screen, (255, 215, 0), (rect.left + 1, rect.top), (rect.left + 1, rect.bottom), 1)
+        # ===================================
 
         if boss_fight and boss_active:
             draw_boss_attack_fx(screen, boss, boss_facing_right, boss_attack_timer, BOSS_ATTACK_DURATION)
@@ -1314,6 +1436,12 @@ def play_round():
         draw_text(screen, "← → move   W jump   SPACE shoot", WHITE, 420, 12)
 
         draw_player_health_bar(screen, player, health, MAX_HEALTH)
+
+        # ===== DISPLAY COIN & BOOST UI =====
+        draw_text(screen, f"Coins: {coin_collected}", YELLOW, WIDTH - 180, 12)
+        if boost_active:
+            draw_text(screen, "BOOST ACTIVE!", GREEN, WIDTH - 200, 40)
+        # ====================================
 
         if hurt_overlay > 0:
             red = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
