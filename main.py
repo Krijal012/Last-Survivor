@@ -14,7 +14,7 @@ pygame.mixer.init(frequency=44100, channels=2, buffer=512)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WIDTH = 1000
 HEIGHT = 600
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.FULLSCREEN | pygame.SCALED)
 pygame.display.set_caption("Virus: Last Survivor")
 
 clock = pygame.time.Clock()
@@ -158,7 +158,7 @@ def load_png(path, size):
         surf.fill((200, 200, 200))
         return surf
     img = pygame.image.load(path).convert_alpha()
-    return pygame.transform.scale(img, size)
+    return pygame.transform.smoothscale(img, size)
 
 
 def load_creature_jpg(path, size):
@@ -169,9 +169,10 @@ def load_creature_jpg(path, size):
         surf.fill((100, 100, 100))
         return surf
     img = pygame.image.load(path).convert()
+    img = pygame.transform.smoothscale(img, size)
     key = img.get_at((0, 0))
     img.set_colorkey(key, pygame.RLEACCEL)
-    return pygame.transform.scale(img, size)
+    return img
 
 
 PLAYER_W, PLAYER_H = 60, 70
@@ -297,7 +298,7 @@ if not os.path.isfile(_bg_path):
 
 if _bg_path and os.path.isfile(_bg_path):
     bg = pygame.image.load(_bg_path).convert()
-    bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
+    bg = pygame.transform.smoothscale(bg, (WIDTH, HEIGHT))
 else:
     bg = None
 
@@ -1188,10 +1189,10 @@ def play_round():
 
         keys = pygame.key.get_pressed()
 
-        if keys[pygame.K_LEFT]:
+        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
             player.x -= PLAYER_SPEED
             facing_right = False
-        if keys[pygame.K_RIGHT]:
+        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             player.x += PLAYER_SPEED
             facing_right = True
 
