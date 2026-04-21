@@ -948,7 +948,13 @@ def win_menu(stats):
         draw_text(screen, perf_sum, (200, 200, 200), WIDTH // 2 - 250, 165)
 
         badge_y = 205
-        draw_text(screen, "Badges:", YELLOW, 70, badge_y)
+        level = get_level(stats.get("score", 0))
+        badge_name, badge_path = get_badge(level)
+        badge_img = load_png(os.path.join(BASE_DIR, badge_path), (100, 100))
+
+        draw_text(screen, f"Final Level: {level}", WHITE, 70, badge_y)
+        draw_text(screen, f"Badge: {badge_name}", YELLOW, 70, badge_y + 40)
+        screen.blit(badge_img, (70, badge_y + 80))
         badge_y += 35
         if stats.get("badges"):
             for b in stats.get("badges", []):
@@ -983,6 +989,25 @@ def win_menu(stats):
         apply_brightness(screen)
         pygame.display.update()
 
+def get_level(score):
+    if score < 200:
+        return 1
+    elif score < 500:
+        return 2
+    elif score < 1000:
+        return 3
+    else:
+        return 4
+
+
+def get_badge(level):
+    badges = {
+        1: ("Bronze", "Images/bronze.png"),
+        2: ("Silver", "Images/silver.png"),
+        3: ("Gold", "Images/gold.png"),
+        4: ("Ace", "Images/ace.png"),
+    }
+    return badges.get(level, ("Bronze", "Images/bronze.png"))
 
 def play_round():
     """
@@ -1004,6 +1029,9 @@ def play_round():
 
     health = MAX_HEALTH
     score = 0
+    current_level = 1
+    badge_name = "Bronze"
+    badge_img = load_png(os.path.join(BASE_DIR, "Images", "bronze.png"), (80, 80))
     total_zombie_kills = 0
     bullets = []
     zombies = []
@@ -1072,10 +1100,17 @@ def play_round():
         nonlocal damage_this_wave, boss_fight, boss_active, bullets, zombies, score, badges
 
         score += POINTS_PER_WAVE
+        current_level = get_level(score)
+        badge_name, badge_path = get_badge(current_level)
+        badge_img = load_png(os.path.join(BASE_DIR, badge_path), (80, 80))
+
         flawless = not damage_this_wave
 
         if flawless:
             score += POINTS_FLAWLESS_WAVE
+            current_level = get_level(score)
+            badge_name, badge_path = get_badge(current_level)
+            badge_img = load_png(os.path.join(BASE_DIR, badge_path), (80, 80))
             msg = f"No damage Wave {wave_index + 1}"
             if msg not in challenges_done:
                 challenges_done.append(msg)
@@ -1432,7 +1467,13 @@ def play_round():
 
         draw_text(screen, f"Wave {wave_index + 1}/5   Wave kills: {killed_this_wave}/{WAVE_ZOMBIE_COUNT}", WHITE, 20,
                   12)
-        draw_text(screen, f"Mission: {total_zombie_kills}/{MISSION_ZOMBIES}   Score: {score}", WHITE, 20, 40)
+        draw_text(screen, f"Score: {score} | Level: {current_level}", WHITE, 20, 40)
+        level = get_level(score)
+        badge_name, badge_path = get_badge(level)
+        badge_img = load_png(os.path.join(BASE_DIR, badge_path), (50, 50))
+
+        screen.blit(badge_img, (20, 70))
+        draw_text(screen, badge_name, YELLOW, 80, 80)
         draw_text(screen, "← → move   W jump   SPACE shoot", WHITE, 420, 12)
 
         draw_player_health_bar(screen, player, health, MAX_HEALTH)
